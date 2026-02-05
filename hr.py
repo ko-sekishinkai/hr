@@ -32,7 +32,17 @@ for sh in xl.sheet_names:
     records.extend(sub.to_dict(orient="records"))
 
 # 選択肢（独立）：年度 と 事業所
-all_years = sorted(list({r.get("年度", "") for r in records if r.get("年度", "").strip() != ""}))
+years_set = {r.get("年度", "") for r in records if r.get("年度", "").strip() != ""}
+# 年度の表示順を降順に（数値として解釈できるものは数値で比較）
+def _to_int_or_none(x):
+    try:
+        return int(str(x))
+    except Exception:
+        return None
+_nums = [y for y in years_set if _to_int_or_none(y) is not None]
+_others = [y for y in years_set if _to_int_or_none(y) is None]
+all_years = list(map(str, sorted(_nums, key=lambda v: int(str(v)), reverse=True))) + \
+            list(sorted(map(str, _others), reverse=True))
 all_sites = sorted(list({r.get("事業所", "") for r in records if r.get("事業所", "").strip() != ""}))
 choices = {"年度": all_years, "事業所": all_sites}
 
