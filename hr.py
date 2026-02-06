@@ -49,6 +49,13 @@ choices = {"年度": all_years, "事業所": all_sites}
 # 表示順（存在しない列は自動スキップ）
 columns_order = ["年度", "事業所", "辞令", "氏名", "日付", "内容"]
 
+# ▼ 日付列の統一：可能な限り日時をパースして 'YYYY/MM/DD' へ統一
+if '日付' in sub.columns:
+    parsed = pd.to_datetime(sub['日付'], errors='coerce')
+    # 端数（時刻）が含まれていても日付に丸め、欠損は空文字
+    sub['日付'] = parsed.dt.strftime('%Y/%m/%d').fillna('')
+
+
 # ---------------- CSS ----------------
 css = """
 * { box-sizing: border-box; }
