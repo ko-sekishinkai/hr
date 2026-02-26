@@ -1,7 +1,6 @@
-
 # -*- coding: utf-8 -*-
 """
-人事情報_統合.xlsx を元に、年度・事業所で絞り込める検索アプリ(静的HTML)を自動生成
+人事情報_統合.xlsx を元に、年度・事業所・辞令で絞り込める検索アプリ(静的HTML)を自動生成
 UI: 参照実装に合わせて、ドロップダウン(ボタン+パネル)内に縦並びチェックボックス、
     パネル上部に「すべて選択」「すべて解除」を配置
 """
@@ -29,32 +28,37 @@ for sh in xl.sheet_names:
         sub[col] = sub[col].apply(lambda x: "" if pd.isna(x) else str(x))
     # 年度・事業所が空の行を除外
     sub = sub[(sub["年度"].str.strip() != "") & (sub["事業所"].str.strip() != "")]
+    # ▼ 日付列の統一：可能な限り日時をパースして 'YYYY/MM/DD' へ統一（欠損は空文字）
+    if '日付' in sub.columns:
+        parsed = pd.to_datetime(sub['日付'], errors='coerce')
+        sub['日付'] = parsed.dt.strftime('%Y/%m/%d').fillna('')
     records.extend(sub.to_dict(orient="records"))
 
-# 選択肢（独立）：年度 と 事業所
+# 選択肢（独立）：年度・事業所・辞令
 years_set = {r.get("年度", "") for r in records if r.get("年度", "").strip() != ""}
+
 # 年度の表示順を降順に（数値として解釈できるものは数値で比較）
 def _to_int_or_none(x):
     try:
         return int(str(x))
     except Exception:
         return None
+
 _nums = [y for y in years_set if _to_int_or_none(y) is not None]
 _others = [y for y in years_set if _to_int_or_none(y) is None]
 all_years = list(map(str, sorted(_nums, key=lambda v: int(str(v)), reverse=True))) + \
             list(sorted(map(str, _others), reverse=True))
+
+# 事業所は昇順
 all_sites = sorted(list({r.get("事業所", "") for r in records if r.get("事業所", "").strip() != ""}))
-choices = {"年度": all_years, "事業所": all_sites}
+
+# ▼ 辞令の選択肢（昇順）
+all_jirei = sorted(list({r.get("辞令", "") for r in records if r.get("辞令", "").strip() != ""}))
+
+choices = {"年度": all_years, "事業所": all_sites, "辞令": all_jirei}
 
 # 表示順（存在しない列は自動スキップ）
 columns_order = ["年度", "事業所", "辞令", "氏名", "日付", "内容"]
-
-# ▼ 日付列の統一：可能な限り日時をパースして 'YYYY/MM/DD' へ統一
-if '日付' in sub.columns:
-    parsed = pd.to_datetime(sub['日付'], errors='coerce')
-    # 端数（時刻）が含まれていても日付に丸め、欠損は空文字
-    sub['日付'] = parsed.dt.strftime('%Y/%m/%d').fillna('')
-
 
 # ---------------- CSS ----------------
 css = """
@@ -84,7 +88,6 @@ button:hover { background: #f4f5f7; }
 .note { color: #777; font-size: .85rem; }
 .badges { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
 .badge { background:#eef3ff; border:1px solid #cbd6ff; color:#2b4dbb; padding:4px 8px; border-radius:999px; font-size:.8rem; }
-
 /* ▼ 参照実装に合わせて統一 */
 .dropdown { position: relative; display: inline-block; }
 .dropdown-toggle {
@@ -117,26 +120,33 @@ button:hover { background: #f4f5f7; }
 """
 
 # ---------------- JavaScript ----------------
+# 注: バックスラッシュは生文字列で保持
 js = r"""
 const DATA = __DATA__;
 const CHOICES = __CHOICES__;
 const COLS = __COLS__;
-
 const exportBtn = document.getElementById('export');
 
 // 年度
-const ddYearBtn   = document.getElementById('dd-year-btn');
+const ddYearBtn = document.getElementById('dd-year-btn');
 const ddYearPanel = document.getElementById('dd-year-panel');
-const yearList    = document.getElementById('year_list');
+const yearList = document.getElementById('year_list');
 const yearSelectAllBtn = document.getElementById('year_select_all');
-const yearClearAllBtn  = document.getElementById('year_clear_all');
+const yearClearAllBtn = document.getElementById('year_clear_all');
 
 // 事業所
-const ddSiteBtn   = document.getElementById('dd-site-btn');
+const ddSiteBtn = document.getElementById('dd-site-btn');
 const ddSitePanel = document.getElementById('dd-site-panel');
-const siteList    = document.getElementById('site_list');
+const siteList = document.getElementById('site_list');
 const siteSelectAllBtn = document.getElementById('site_select_all');
-const siteClearAllBtn  = document.getElementById('site_clear_all');
+const siteClearAllBtn = document.getElementById('site_clear_all');
+
+// ▼ 辞令
+const ddJireiBtn = document.getElementById('dd-jirei-btn');
+const ddJireiPanel = document.getElementById('dd-jirei-panel');
+const jireiList = document.getElementById('jirei_list');
+const jireiSelectAllBtn = document.getElementById('jirei_select_all');
+const jireiClearAllBtn = document.getElementById('jirei_clear_all');
 
 // 候補描画（縦並び）
 function renderYearChoices() {
@@ -149,6 +159,11 @@ function renderSiteChoices() {
     .map(s => `<label class="chk"><input type="checkbox" name="site" value="${s}">${s}</label>`)
     .join('');
 }
+function renderJireiChoices() {
+  jireiList.innerHTML = CHOICES['辞令']
+    .map(j => `<label class="chk"><input type="checkbox" name="jirei" value="${j}">${j}</label>`)
+    .join('');
+}
 
 // 選択値取得（name基準）
 function getChecked(name) {
@@ -159,9 +174,11 @@ function getChecked(name) {
 function getFiltered() {
   const years = getChecked('year');
   const sites = getChecked('site');
+  const jireis = getChecked('jirei');
   return DATA.filter(r =>
     (years.length === 0 || years.includes(r['年度'])) &&
-    (sites.length === 0 || sites.includes(r['事業所']))
+    (sites.length === 0 || sites.includes(r['事業所'])) &&
+    (jireis.length === 0 || jireis.includes(r['辞令']))
   );
 }
 
@@ -185,8 +202,10 @@ function makeTable(containerId, rows) {
 function renderBadges() {
   const years = getChecked('year');
   const sites = getChecked('site');
+  const jireis = getChecked('jirei');
   document.getElementById('badge_year').textContent = years.length ? years.join(', ') : '未選択';
   document.getElementById('badge_site').textContent = sites.length ? sites.join(', ') : '未選択';
+  document.getElementById('badge_jirei').textContent = jireis.length ? jireis.join(', ') : '未選択';
 }
 
 // 再描画
@@ -224,17 +243,21 @@ function toggleDropdown(btn, panel, open) {
 }
 ddYearBtn.addEventListener('click', () => toggleDropdown(ddYearBtn, ddYearPanel));
 ddSiteBtn.addEventListener('click', () => toggleDropdown(ddSiteBtn, ddSitePanel));
+ddJireiBtn.addEventListener('click', () => toggleDropdown(ddJireiBtn, ddJireiPanel));
 
 // 外側クリックで閉じる
 document.addEventListener('click', (e) => {
   if (!ddYearBtn.contains(e.target) && !ddYearPanel.contains(e.target)) toggleDropdown(ddYearBtn, ddYearPanel, false);
   if (!ddSiteBtn.contains(e.target) && !ddSitePanel.contains(e.target)) toggleDropdown(ddSiteBtn, ddSitePanel, false);
+  if (!ddJireiBtn.contains(e.target) && !ddJireiPanel.contains(e.target)) toggleDropdown(ddJireiBtn, ddJireiPanel, false);
 });
+
 // ESCで閉じる
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     toggleDropdown(ddYearBtn, ddYearPanel, false);
     toggleDropdown(ddSiteBtn, ddSitePanel, false);
+    toggleDropdown(ddJireiBtn, ddJireiPanel, false);
   }
 });
 
@@ -255,16 +278,26 @@ siteClearAllBtn.addEventListener('click', () => {
   document.querySelectorAll('input[name="site"]').forEach(el => el.checked = false);
   renderAll();
 });
+// ▼ 辞令の一括選択/解除
+jireiSelectAllBtn.addEventListener('click', () => {
+  document.querySelectorAll('input[name="jirei"]').forEach(el => el.checked = true);
+  renderAll();
+});
+jireiClearAllBtn.addEventListener('click', () => {
+  document.querySelectorAll('input[name="jirei"]').forEach(el => el.checked = false);
+  renderAll();
+});
 
 // 変更即時反映
 document.addEventListener('change', (e) => {
-  if (e.target && (e.target.name === 'year' || e.target.name === 'site')) renderAll();
+  if (e.target && (e.target.name === 'year' || e.target.name === 'site' || e.target.name === 'jirei')) renderAll();
 });
 
 // 初期化
 (function init() {
   renderYearChoices();
   renderSiteChoices();
+  renderJireiChoices();
   renderAll();
   exportBtn.addEventListener('click', exportCSV);
 })();
@@ -297,6 +330,7 @@ html_template = """
           </div>
         </div>
       </div>
+
       <!-- 事業所 -->
       <div class="group" aria-label="事業所のドロップダウン">
         <div class="dropdown">
@@ -311,13 +345,32 @@ html_template = """
         </div>
       </div>
 
+      <!-- 辞令 -->
+      <div class="group" aria-label="辞令のドロップダウン">
+        <div class="dropdown">
+          <button class="dropdown-toggle" id="dd-jirei-btn" aria-expanded="false" aria-controls="dd-jirei-panel">辞令を選択（複数可）</button>
+          <div class="dropdown-panel" id="dd-jirei-panel" role="listbox" aria-labelledby="dd-jirei-btn">
+            <div class="dropdown-actions">
+              <button id="jirei_select_all" type="button">すべて選択</button>
+              <button id="jirei_clear_all" type="button">すべて解除</button>
+            </div>
+            <div id="jirei_list" class="checkbox-list" aria-label="辞令選択"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="group" style="min-width:auto;">
         <button id="export" title="現在の抽出結果をCSVで保存">CSVダウンロード</button>
-        <div class="note">※年度・事業所は複数選択できます（未選択の場合は全件）</div>
+        <div class="note">※年度・事業所・辞令は複数選択できます（未選択の場合は全件）</div>
       </div>
     </div>
 
-    <div class="note">選択中 → 年度: <span class="badge" id="badge_year"></span> ／ 事業所: <span class="badge" id="badge_site"></span></div>
+    <div class="note">
+      選択中 →
+      年度: <span class="badge" id="badge_year"></span> ／
+      事業所: <span class="badge" id="badge_site"></span> ／
+      辞令: <span class="badge" id="badge_jirei"></span>
+    </div>
   </header>
 
   <section class="card">
@@ -334,15 +387,17 @@ html_template = """
 """
 
 # テンプレ埋め込みと書き出し
-html = html_template.replace("[[CSS]]", css)\
-    .replace("[[SRCFILE]]", os.path.basename(EXCEL_FILE))\
+html = html_template.replace("[[CSS]]", css) \
+    .replace("[[SRCFILE]]", os.path.basename(EXCEL_FILE)) \
     .replace("[[TIMESTAMP]]", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-js_filled = js.replace("__DATA__", json.dumps(records, ensure_ascii=False))\
-    .replace("__CHOICES__", json.dumps(choices, ensure_ascii=False))\
+js_filled = js.replace("__DATA__", json.dumps(records, ensure_ascii=False)) \
+    .replace("__CHOICES__", json.dumps(choices, ensure_ascii=False)) \
     .replace("__COLS__", json.dumps(columns_order, ensure_ascii=False))
 
 html = html.replace("[[JS]]", js_filled)
+
 with open(HTML_FILE, "w", encoding="utf-8") as f:
     f.write(html)
+
 print("✓ 生成完了:", HTML_FILE)
