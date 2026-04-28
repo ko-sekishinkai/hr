@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-人事情報_統合.xlsx を元に、年度・事業所・辞令で絞り込める検索アプリ(静的HTML)を自動生成
+人事情報.xlsx を元に、年度・事業所・辞令で絞り込める検索アプリ(静的HTML)を自動生成
 UI: 参照実装に合わせて、ドロップダウン(ボタン+パネル)内に縦並びチェックボックス、
     パネル上部に「すべて選択」「すべて解除」を配置
 """
@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 import os
 
-EXCEL_FILE = "人事情報_統合.xlsx"
+EXCEL_FILE = "人事情報.xlsx"
 HTML_FILE = "index.html"
 
 # Excel 読み込み（.xlsx は openpyxl を指定）
@@ -58,7 +58,7 @@ all_jirei = sorted(list({r.get("辞令", "") for r in records if r.get("辞令",
 choices = {"年度": all_years, "事業所": all_sites, "辞令": all_jirei}
 
 # 表示順（存在しない列は自動スキップ）
-columns_order = ["年度", "事業所", "辞令", "氏名", "日付", "内容"]
+columns_order = [ "年度", "日付", "事業所", "氏名", "辞令", "詳細" ]
 
 # ---------------- CSS ----------------
 css = """
